@@ -12,11 +12,13 @@ import {
   Calendar,
   ChevronDown,
   AlertTriangle,
+  Volume2,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui';
 import { LANGUAGES } from '@/utils/constants';
 import { formatTime, getLanguageDisplayName, truncateText } from '@/utils/helpers';
+import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
 import type { SessionRecord, SessionRecordType } from '@/types';
 
 type FilterType = 'all' | SessionRecordType;
@@ -26,6 +28,7 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
   const deleteSessionRecord = useAppStore(state => state.deleteSessionRecord);
   const clearSessionRecords = useAppStore(state => state.clearSessionRecords);
   const addToast = useAppStore(state => state.addToast);
+  const { replay, isSupported: ttsSupported } = useSpeechSynthesis();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<FilterType>('all');
@@ -33,6 +36,19 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+
+  // 重读译文：使用该记录的目标语言偏好，正常播完后清除“被打断”标记
+  const handleReplay = (record: SessionRecord) => {
+    if (!ttsSupported) {
+      addToast('error', '浏览器不支持语音播报');
+      return;
+    }
+    replay(record.targetText, record.targetLang, record.id);
+    addToast('info', '正在重新朗读译文');
+    setSelectedRecord(prev =>
+      prev?.id === record.id ? { ...prev, ttsInterrupted: false } : prev
+    );
+  };
 
   const filteredRecords = useMemo(() => {
     return sessionRecords.filter(record => {
@@ -258,6 +274,12 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
                                 <span className="text-xs text-dark-600">
                                   {getLanguageDisplayName(record.sourceLang, LANGUAGES)} → {getLanguageDisplayName(record.targetLang, LANGUAGES)}
                                 </span>
+                                {record.ttsInterrupted && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs bg-accent-yellow/20 text-accent-yellow" title="该条译文播报被新的识别结果打断，可在详情中重读">
+                                    <Volume2 className="w-3 h-3" />
+                                    播报被打断
+                                  </span>
+                                )}
                               </div>
                               <p className="text-sm text-dark-300 truncate mb-1">
                                 {truncateText(record.sourceText, 60)}
@@ -303,6 +325,26 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
                     {getTypeLabel(selectedRecord.type)}
                   </span>
                 </div>
+
+                {/* 播报被打断提示 + 重读 */}
+                {selectedRecord.ttsInterrupted && (
+                  <div className="flex items-center justify-between gap-3 p-3 bg-accent-yellow/10 border border-accent-yellow/30 rounded-lg">
+                    <p className="flex items-center gap-2 text-xs text-accent-yellow">
+                      <Volume2 className="w-4 h-4 flex-shrink-0" />
+                      该条译文当时被新的识别结果打断，未播放完
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleReplay(selectedRecord)}
+                      disabled={!ttsSupported}
+                      icon={<Volume2 className="w-4 h-4" />}
+                      className="flex-shrink-0"
+                    >
+                      重读
+                    </Button>
+                  </div>
+                )}
 
                 {/* 时间信息 */}
                 <div className="text-sm text-dark-400 space-y-1">
@@ -351,17 +393,27 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-primary-400">译文</span>
-                    <button
-                      onClick={() => handleCopy(selectedRecord.targetText, `target-${selectedRecord.id}`)}
-                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
-                      title="复制译文"
-                    >
-                      {copiedId === `target-${selectedRecord.id}` ? (
-                        <Check className="w-4 h-4 text-accent-green" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-dark-500" />
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleReplay(selectedRecord)}
+                        disabled={!ttsSupported}
+                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="朗读译文"
+                      >
+                        <Volume2 className="w-4 h-4 text-dark-500 hover:text-primary-400" />
+                      </button>
+                      <button
+                        onClick={() => handleCopy(selectedRecord.targetText, `target-${selectedRecord.id}`)}
+                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+                        title="复制译文"
+                      >
+                        {copiedId === `target-${selectedRecord.id}` ? (
+                          <Check className="w-4 h-4 text-accent-green" />
+                        ) : (
+                          <Copy className="w-4 h-4 text-dark-500" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <div className="glass-card p-4 border-l-2 border-primary-500">
                     <p className="text-dark-100 whitespace-pre-wrap break-words leading-relaxed">
@@ -410,6 +462,26 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
                 </span>
               </div>
 
+              {/* 播报被打断提示 + 重读 */}
+              {selectedRecord.ttsInterrupted && (
+                <div className="flex items-center justify-between gap-3 p-3 bg-accent-yellow/10 border border-accent-yellow/30 rounded-lg">
+                  <p className="flex items-center gap-2 text-xs text-accent-yellow">
+                    <Volume2 className="w-4 h-4 flex-shrink-0" />
+                    该条译文当时被新的识别结果打断，未播放完
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleReplay(selectedRecord)}
+                    disabled={!ttsSupported}
+                    icon={<Volume2 className="w-4 h-4" />}
+                    className="flex-shrink-0"
+                  >
+                    重读
+                  </Button>
+                </div>
+              )}
+
               {/* 时间信息 */}
               <div className="text-sm text-dark-400 space-y-1">
                 <p className="flex items-center gap-2">
@@ -456,16 +528,26 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-primary-400">译文</span>
-                  <button
-                    onClick={() => handleCopy(selectedRecord.targetText, `target-m-${selectedRecord.id}`)}
-                    className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
-                  >
-                    {copiedId === `target-m-${selectedRecord.id}` ? (
-                      <Check className="w-4 h-4 text-accent-green" />
-                    ) : (
-                      <Copy className="w-4 h-4 text-dark-500" />
-                    )}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleReplay(selectedRecord)}
+                      disabled={!ttsSupported}
+                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="朗读译文"
+                    >
+                      <Volume2 className="w-4 h-4 text-dark-500 hover:text-primary-400" />
+                    </button>
+                    <button
+                      onClick={() => handleCopy(selectedRecord.targetText, `target-m-${selectedRecord.id}`)}
+                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+                    >
+                      {copiedId === `target-m-${selectedRecord.id}` ? (
+                        <Check className="w-4 h-4 text-accent-green" />
+                      ) : (
+                        <Copy className="w-4 h-4 text-dark-500" />
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <div className="glass-card p-4 border-l-2 border-primary-500">
                   <p className="text-dark-100 whitespace-pre-wrap break-words leading-relaxed">

@@ -34,6 +34,17 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast }) => {
     >
       <Icon className="w-5 h-5 flex-shrink-0" />
       <span className="text-sm font-medium text-dark-100">{toast.message}</span>
+      {toast.action && (
+        <button
+          onClick={() => {
+            toast.action?.onClick();
+            removeToast(toast.id);
+          }}
+          className="ml-2 px-2.5 py-1 text-xs font-semibold rounded-md bg-white/10 hover:bg-white/20 text-dark-100 transition-colors flex-shrink-0"
+        >
+          {toast.action.label}
+        </button>
+      )}
       <button
         onClick={() => removeToast(toast.id)}
         className="ml-auto p-1 hover:bg-white/10 rounded transition-colors"

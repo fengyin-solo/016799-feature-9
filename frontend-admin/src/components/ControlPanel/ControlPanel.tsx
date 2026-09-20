@@ -9,6 +9,7 @@ import {
   Settings,
   AlertCircle,
   Play,
+  User,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { Select, Slider, Toggle, Button } from '@/components/ui';
@@ -25,12 +26,33 @@ export const ControlPanel: React.FC = () => {
   const toggleMic = useAppStore(state => state.toggleMic);
   const setAudioSettings = useAppStore(state => state.setAudioSettings);
 
-  const { testSpeak, isSupported: ttsSupported } = useSpeechSynthesis();
+  const {
+    testSpeak,
+    isSupported: ttsSupported,
+    voicesForTargetLang,
+    selectedVoiceURI,
+    selectVoice,
+  } = useSpeechSynthesis();
 
   const languageOptions = LANGUAGES.map(lang => ({
     value: lang.code,
     label: lang.nativeName,
   }));
+
+  // 发音人选项：自动选择 + 当前目标语言可用的发音人（选择后按语言记忆）
+  const voiceOptions = [
+    { value: '', label: '自动选择（推荐）' },
+    ...voicesForTargetLang.map(voice => ({
+      value: voice.voiceURI,
+      label: `${voice.name}${voice.default ? ' · 默认' : ''}`,
+    })),
+  ];
+
+  const currentVoiceValue =
+    selectedVoiceURI &&
+    voicesForTargetLang.some(v => v.voiceURI === selectedVoiceURI)
+      ? selectedVoiceURI
+      : '';
 
   // 检查浏览器是否支持语音识别
   const isSpeechSupported = typeof window !== 'undefined' && 
@@ -166,6 +188,18 @@ export const ControlPanel: React.FC = () => {
           icon={<Gauge className="w-4 h-4" />}
         />
 
+        <Select
+          label="发音人"
+          value={currentVoiceValue}
+          options={voiceOptions}
+          onChange={value => selectVoice(value || null)}
+          icon={<User className="w-4 h-4" />}
+          hidePlaceholder
+        />
+        <p className="text-xs text-dark-500 -mt-3">
+          发音人与语速按目标语言分别记忆，切换语言后自动沿用
+        </p>
+
         <Button
           variant="secondary"
           size="sm"
@@ -180,6 +214,12 @@ export const ControlPanel: React.FC = () => {
         {!ttsSupported && (
           <p className="text-xs text-accent-yellow">
             您的浏览器不支持语音播报功能
+          </p>
+        )}
+
+        {ttsSupported && voicesForTargetLang.length === 0 && (
+          <p className="text-xs text-accent-yellow">
+            当前目标语言暂无可用发音人，播报时将使用通用语音
           </p>
         )}
       </section>

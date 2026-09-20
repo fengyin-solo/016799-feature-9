@@ -13,6 +13,7 @@ interface SelectProps {
   onChange: (value: string) => void;
   icon?: React.ReactNode;
   placeholder?: string;
+  hidePlaceholder?: boolean;
 }
 
 export const Select: React.FC<SelectProps> = ({
@@ -22,6 +23,7 @@ export const Select: React.FC<SelectProps> = ({
   onChange,
   icon,
   placeholder = '请选择',
+  hidePlaceholder = false,
 }) => {
   return (
     <div className="space-y-2">
@@ -37,9 +39,11 @@ export const Select: React.FC<SelectProps> = ({
           onChange={e => onChange(e.target.value)}
           className="select-field pr-10"
         >
-          <option value="" disabled>
-            {placeholder}
-          </option>
+          {!hidePlaceholder && (
+            <option value="" disabled>
+              {placeholder}
+            </option>
+          )}
           {options.map(option => (
             <option key={option.value} value={option.value}>
               {option.label}

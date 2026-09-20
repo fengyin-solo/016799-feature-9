@@ -11,6 +11,19 @@ export const DEFAULT_AUDIO_SETTINGS = {
   ttsEnabled: true,
 };
 
+// 语音播报偏好 localStorage 键（音量 / 语速 / 发音人）
+export const TTS_PREFS_STORAGE_KEY = 'subtitle-translator-tts-preferences';
+
+// 播报开始前的最长等待（超时则提示可重试）
+export const TTS_START_TIMEOUT = 5000;
+
+// 播报总时长估算下限/上限（看门狗，宁宽勿误杀）
+export const TTS_MIN_TIMEOUT = 15000;
+export const TTS_MAX_TIMEOUT = 45000;
+
+// 带操作按钮（如“重试”）的 Toast 展示时长
+export const TOAST_ACTION_DURATION = 8000;
+
 export const MAX_INPUT_LENGTH = 500;
 
 export const TOAST_DURATION = 3000;

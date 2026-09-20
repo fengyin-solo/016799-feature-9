@@ -24,11 +24,17 @@ export interface TranslationResult {
   timestamp: Date;
 }
 
-// 音频设置
+// 音频设置（全局：音量与播报开关；语速按语言分别记忆在 ttsPreferences 中）
 export interface AudioSettings {
   volume: number;
   speed: number;
   ttsEnabled: boolean;
+}
+
+// 单个目标语言的语音播报偏好（发音人与语速）
+export interface LangTtsPreference {
+  voiceURI: string | null;
+  speed: number;
 }
 
 // 控制面板状态
@@ -48,6 +54,10 @@ export interface Toast {
   type: ToastType;
   message: string;
   duration?: number;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 // 会话记录类型
@@ -62,6 +72,8 @@ export interface SessionRecord {
   sourceLang: string;
   targetLang: string;
   timestamp: Date;
+  // 该条目的译文播报是否被新的播报打断（未播完）
+  ttsInterrupted?: boolean;
   metadata?: {
     confidence?: number;
     duration?: number;
@@ -88,22 +100,41 @@ export interface AppState {
   
   // Toast
   toasts: Toast[];
-  
+
   // 会话记录
   sessionRecords: SessionRecord[];
-  
+
+  // 按目标语言记忆的语音播报偏好（发音人、语速）
+  ttsPreferences: Record<string, LangTtsPreference>;
+
   // Actions
   setSourceLang: (lang: string) => void;
   setTargetLang: (lang: string) => void;
   toggleMic: () => void;
   setAudioSettings: (settings: Partial<AudioSettings>) => void;
-  addSubtitle: (original: string, translated: string) => void;
+  // 设置某个目标语言的发音人（null 表示自动选择）
+  setLangTtsVoice: (lang: string, voiceURI: string | null) => void;
+  // 设置某个目标语言的语速（同时同步到当前全局 speed，供滑块显示与立即生效）
+  setLangTtsSpeed: (lang: string, speed: number) => void;
+  addSubtitle: (original: string, translated: string) => string;
   setCurrentSubtitle: (text: string) => void;
   setInputText: (text: string) => void;
   translate: () => Promise<void>;
-  addToast: (type: ToastType, message: string) => void;
+  addToast: (
+    type: ToastType,
+    message: string,
+    options?: {
+      duration?: number;
+      action?: { label: string; onClick: () => void };
+    }
+  ) => void;
   removeToast: (id: string) => void;
-  addSessionRecord: (record: Omit<SessionRecord, 'id' | 'timestamp'>) => void;
+  addSessionRecord: (
+    record: Omit<SessionRecord, 'id' | 'timestamp'>,
+    id?: string
+  ) => string;
   deleteSessionRecord: (id: string) => void;
   clearSessionRecords: () => void;
+  // 标记/清除某条记录的播报被打断状态
+  setRecordTtsInterrupted: (id: string, interrupted: boolean) => void;
 }
