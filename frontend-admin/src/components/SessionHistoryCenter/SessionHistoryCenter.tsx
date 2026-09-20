@@ -12,14 +12,57 @@ import {
   Calendar,
   ChevronDown,
   AlertTriangle,
+  Volume2,
+  Loader2,
+  Ban,
+  Clock,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui';
 import { LANGUAGES } from '@/utils/constants';
 import { formatTime, getLanguageDisplayName, truncateText } from '@/utils/helpers';
-import type { SessionRecord, SessionRecordType } from '@/types';
+import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
+import type { SessionRecord, SessionRecordType, RecordTtsStatus } from '@/types';
 
 type FilterType = 'all' | SessionRecordType;
+
+// 播报状态对应的徽标展示（用于识别被打断/超时/失败的条目）
+const ttsStatusMeta: Record<RecordTtsStatus, {
+  label: string;
+  icon: React.ReactNode;
+  className: string;
+}> = {
+  interrupted: {
+    label: '播报被打断',
+    icon: <Ban className="w-3.5 h-3.5" />,
+    className: 'bg-accent-yellow/20 text-accent-yellow',
+  },
+  timeout: {
+    label: '播报超时',
+    icon: <Clock className="w-3.5 h-3.5" />,
+    className: 'bg-accent-yellow/20 text-accent-yellow',
+  },
+  failed: {
+    label: '播报失败',
+    icon: <AlertTriangle className="w-3.5 h-3.5" />,
+    className: 'bg-accent-red/20 text-accent-red',
+  },
+  completed: {
+    label: '已播报',
+    icon: <Volume2 className="w-3.5 h-3.5" />,
+    className: 'bg-accent-green/20 text-accent-green',
+  },
+};
+
+const TtsStatusBadge: React.FC<{ status: RecordTtsStatus }> = ({ status }) => {
+  const meta = ttsStatusMeta[status];
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${meta.className}`}>
+      {meta.icon}
+      {meta.label}
+    </span>
+  );
+};
 
 export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const sessionRecords = useAppStore(state => state.sessionRecords);
@@ -27,12 +70,21 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
   const clearSessionRecords = useAppStore(state => state.clearSessionRecords);
   const addToast = useAppStore(state => state.addToast);
 
+  const { replay, isSupported: ttsSupported } = useSpeechSynthesis();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<FilterType>('all');
-  const [selectedRecord, setSelectedRecord] = useState<SessionRecord | null>(null);
+  // 用 id 关联记录，重读后记录状态更新（如被打断→已播完）时详情面板能自动刷新
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [replayingId, setReplayingId] = useState<string | null>(null);
+
+  const selectedRecord = useMemo(
+    () => sessionRecords.find(r => r.id === selectedRecordId) || null,
+    [sessionRecords, selectedRecordId],
+  );
 
   const filteredRecords = useMemo(() => {
     return sessionRecords.filter(record => {
@@ -75,15 +127,29 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     deleteSessionRecord(id);
-    if (selectedRecord?.id === id) {
-      setSelectedRecord(null);
+    if (selectedRecordId === id) {
+      setSelectedRecordId(null);
     }
   };
 
   const handleClearAll = () => {
     clearSessionRecords();
     setShowClearConfirm(false);
-    setSelectedRecord(null);
+    setSelectedRecordId(null);
+  };
+
+  // 重读译文：沿用该目标语言记住的发音人与语速；新的重读同样会打断当前播报
+  const handleReplay = (record: SessionRecord) => {
+    if (!ttsSupported) {
+      addToast('warning', '当前浏览器不支持语音播报');
+      return;
+    }
+    setReplayingId(record.id);
+    replay(record.targetText, record.targetLang, record.id);
+    // 给一点视觉反馈；实际状态以记录上的播报标记为准
+    setTimeout(() => {
+      setReplayingId(current => (current === record.id ? null : current));
+    }, 800);
   };
 
   const getTypeIcon = (type: SessionRecordType) => {
@@ -240,18 +306,22 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
                       {records.map(record => (
                         <div
                           key={record.id}
-                          onClick={() => setSelectedRecord(record)}
+                          onClick={() => setSelectedRecordId(record.id)}
                           className={`glass-card p-4 cursor-pointer transition-all hover:bg-white/5 group ${
-                            selectedRecord?.id === record.id ? 'ring-2 ring-primary-500/50 bg-white/5' : ''
-                          }`}
+                            selectedRecordId === record.id ? 'ring-2 ring-primary-500/50 bg-white/5' : ''
+                          } ${record.metadata?.ttsStatus && record.metadata.ttsStatus !== 'completed' ? 'border-l-2 border-l-accent-yellow/60' : ''}`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-2">
+                              <div className="flex items-center gap-2 mb-2 flex-wrap">
                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getTypeColor(record.type)}`}>
                                   {getTypeIcon(record.type)}
                                   {getTypeLabel(record.type)}
                                 </span>
+                                {record.metadata?.ttsStatus &&
+                                  record.metadata.ttsStatus !== 'completed' && (
+                                    <TtsStatusBadge status={record.metadata.ttsStatus} />
+                                  )}
                                 <span className="text-xs text-dark-600 font-mono">
                                   {formatTime(record.timestamp)}
                                 </span>
@@ -289,7 +359,7 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
               <div className="p-4 border-b border-white/10 flex items-center justify-between">
                 <h3 className="font-medium text-dark-100">记录详情</h3>
                 <button
-                  onClick={() => setSelectedRecord(null)}
+                  onClick={() => setSelectedRecordId(null)}
                   className="p-1.5 hover:bg-white/10 rounded-lg text-dark-500 hover:text-dark-100 md:hidden"
                 >
                   <X className="w-4 h-4" />
@@ -297,12 +367,44 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
               </div>
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 {/* 类型标签 */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${getTypeColor(selectedRecord.type)}`}>
                     {getTypeIcon(selectedRecord.type)}
                     {getTypeLabel(selectedRecord.type)}
                   </span>
+                  {selectedRecord.metadata?.ttsStatus && (
+                    <TtsStatusBadge status={selectedRecord.metadata.ttsStatus} />
+                  )}
                 </div>
+
+                {/* 播报状态提示条：被打断/超时/失败时在此识别并可直接重读 */}
+                {selectedRecord.metadata?.ttsStatus === 'interrupted' && (
+                  <div className="flex items-start gap-2 p-3 bg-accent-yellow/10 border border-accent-yellow/30 rounded-lg">
+                    <Ban className="w-5 h-5 text-accent-yellow flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-accent-yellow">该条播报未读完就被新的播报打断</p>
+                      <p className="text-xs text-dark-400 mt-1">可点击下方按钮重读译文。</p>
+                    </div>
+                  </div>
+                )}
+                {selectedRecord.metadata?.ttsStatus === 'timeout' && (
+                  <div className="flex items-start gap-2 p-3 bg-accent-yellow/10 border border-accent-yellow/30 rounded-lg">
+                    <Clock className="w-5 h-5 text-accent-yellow flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-accent-yellow">该条播报超时未完成</p>
+                      <p className="text-xs text-dark-400 mt-1">可能是系统语音服务繁忙，可点击下方按钮重试。</p>
+                    </div>
+                  </div>
+                )}
+                {selectedRecord.metadata?.ttsStatus === 'failed' && (
+                  <div className="flex items-start gap-2 p-3 bg-accent-red/10 border border-accent-red/30 rounded-lg">
+                    <AlertTriangle className="w-5 h-5 text-accent-red flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-accent-red">该条播报失败</p>
+                      <p className="text-xs text-dark-400 mt-1">可点击下方按钮重新朗读。</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* 时间信息 */}
                 <div className="text-sm text-dark-400 space-y-1">
@@ -351,17 +453,31 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-primary-400">译文</span>
-                    <button
-                      onClick={() => handleCopy(selectedRecord.targetText, `target-${selectedRecord.id}`)}
-                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
-                      title="复制译文"
-                    >
-                      {copiedId === `target-${selectedRecord.id}` ? (
-                        <Check className="w-4 h-4 text-accent-green" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-dark-500" />
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleReplay(selectedRecord)}
+                        disabled={!ttsSupported || replayingId === selectedRecord.id}
+                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-primary-400 disabled:opacity-50"
+                        title="重读译文"
+                      >
+                        {replayingId === selectedRecord.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Volume2 className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleCopy(selectedRecord.targetText, `target-${selectedRecord.id}`)}
+                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+                        title="复制译文"
+                      >
+                        {copiedId === `target-${selectedRecord.id}` ? (
+                          <Check className="w-4 h-4 text-accent-green" />
+                        ) : (
+                          <Copy className="w-4 h-4 text-dark-500" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <div className="glass-card p-4 border-l-2 border-primary-500">
                     <p className="text-dark-100 whitespace-pre-wrap break-words leading-relaxed">
@@ -371,12 +487,27 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
                 </div>
 
                 {/* 操作按钮 */}
-                <div className="pt-4 border-t border-white/10">
+                <div className="pt-4 border-t border-white/10 space-y-3">
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleReplay(selectedRecord)}
+                    disabled={!ttsSupported}
+                    icon={
+                      replayingId === selectedRecord.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Volume2 className="w-4 h-4" />
+                      )
+                    }
+                    className="w-full"
+                  >
+                    {replayingId === selectedRecord.id ? '正在重读…' : '重读译文'}
+                  </Button>
                   <Button
                     variant="danger"
                     onClick={() => {
                       deleteSessionRecord(selectedRecord.id);
-                      setSelectedRecord(null);
+                      setSelectedRecordId(null);
                     }}
                     icon={<Trash2 className="w-4 h-4" />}
                     className="w-full"
@@ -395,7 +526,7 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
             <div className="p-4 border-b border-white/10 flex items-center justify-between">
               <h3 className="font-medium text-dark-100">记录详情</h3>
               <button
-                onClick={() => setSelectedRecord(null)}
+                onClick={() => setSelectedRecordId(null)}
                 className="p-2 hover:bg-white/10 rounded-lg text-dark-400 hover:text-dark-100"
               >
                 <X className="w-5 h-5" />
@@ -403,12 +534,44 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* 类型标签 */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${getTypeColor(selectedRecord.type)}`}>
                   {getTypeIcon(selectedRecord.type)}
                   {getTypeLabel(selectedRecord.type)}
                 </span>
+                {selectedRecord.metadata?.ttsStatus && (
+                  <TtsStatusBadge status={selectedRecord.metadata.ttsStatus} />
+                )}
               </div>
+
+              {/* 播报状态提示条：被打断/超时/失败时在此识别并可直接重读 */}
+              {selectedRecord.metadata?.ttsStatus === 'interrupted' && (
+                <div className="flex items-start gap-2 p-3 bg-accent-yellow/10 border border-accent-yellow/30 rounded-lg">
+                  <Ban className="w-5 h-5 text-accent-yellow flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-accent-yellow">该条播报未读完就被新的播报打断</p>
+                    <p className="text-xs text-dark-400 mt-1">可点击下方按钮重读译文。</p>
+                  </div>
+                </div>
+              )}
+              {selectedRecord.metadata?.ttsStatus === 'timeout' && (
+                <div className="flex items-start gap-2 p-3 bg-accent-yellow/10 border border-accent-yellow/30 rounded-lg">
+                  <Clock className="w-5 h-5 text-accent-yellow flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-accent-yellow">该条播报超时未完成</p>
+                    <p className="text-xs text-dark-400 mt-1">可能是系统语音服务繁忙，可点击下方按钮重试。</p>
+                  </div>
+                </div>
+              )}
+              {selectedRecord.metadata?.ttsStatus === 'failed' && (
+                <div className="flex items-start gap-2 p-3 bg-accent-red/10 border border-accent-red/30 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 text-accent-red flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-accent-red">该条播报失败</p>
+                    <p className="text-xs text-dark-400 mt-1">可点击下方按钮重新朗读。</p>
+                  </div>
+                </div>
+              )}
 
               {/* 时间信息 */}
               <div className="text-sm text-dark-400 space-y-1">
@@ -456,16 +619,30 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-primary-400">译文</span>
-                  <button
-                    onClick={() => handleCopy(selectedRecord.targetText, `target-m-${selectedRecord.id}`)}
-                    className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
-                  >
-                    {copiedId === `target-m-${selectedRecord.id}` ? (
-                      <Check className="w-4 h-4 text-accent-green" />
-                    ) : (
-                      <Copy className="w-4 h-4 text-dark-500" />
-                    )}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleReplay(selectedRecord)}
+                      disabled={!ttsSupported || replayingId === selectedRecord.id}
+                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-primary-400 disabled:opacity-50"
+                      title="重读译文"
+                    >
+                      {replayingId === selectedRecord.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Volume2 className="w-4 h-4" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleCopy(selectedRecord.targetText, `target-m-${selectedRecord.id}`)}
+                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+                    >
+                      {copiedId === `target-m-${selectedRecord.id}` ? (
+                        <Check className="w-4 h-4 text-accent-green" />
+                      ) : (
+                        <Copy className="w-4 h-4 text-dark-500" />
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <div className="glass-card p-4 border-l-2 border-primary-500">
                   <p className="text-dark-100 whitespace-pre-wrap break-words leading-relaxed">
@@ -475,12 +652,27 @@ export const SessionHistoryCenter: React.FC<{ onClose: () => void }> = ({ onClos
               </div>
 
               {/* 操作按钮 */}
-              <div className="pt-4 border-t border-white/10">
+              <div className="pt-4 border-t border-white/10 space-y-3">
+                <Button
+                  variant="secondary"
+                  onClick={() => handleReplay(selectedRecord)}
+                  disabled={!ttsSupported}
+                  icon={
+                    replayingId === selectedRecord.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Volume2 className="w-4 h-4" />
+                    )
+                  }
+                  className="w-full"
+                >
+                  {replayingId === selectedRecord.id ? '正在重读…' : '重读译文'}
+                </Button>
                 <Button
                   variant="danger"
                   onClick={() => {
                     deleteSessionRecord(selectedRecord.id);
-                    setSelectedRecord(null);
+                    setSelectedRecordId(null);
                   }}
                   icon={<Trash2 className="w-4 h-4" />}
                   className="w-full"

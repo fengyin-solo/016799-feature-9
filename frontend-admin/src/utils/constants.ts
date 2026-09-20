@@ -9,11 +9,28 @@ export const DEFAULT_AUDIO_SETTINGS = {
   volume: 80,
   speed: 1.0,
   ttsEnabled: true,
+  voicePreferences: {} as Record<string, { voiceName: string; speed: number }>,
 };
 
 export const MAX_INPUT_LENGTH = 500;
 
 export const TOAST_DURATION = 3000;
+// 播报异常（超时/失败）后给出重试说明，停留时间稍长
+export const TTS_RETRY_TOAST_DURATION = 8000;
+
+// localStorage 键名
+export const STORAGE_KEYS = {
+  sessionRecords: 'subtitle-translator-session-records',
+  audioSettings: 'subtitle-translator-audio-settings',
+} as const;
+
+// 语音播报超时（毫秒）
+// 开始阶段超时：调用 speak 后长时间未触发 onstart
+export const TTS_START_TIMEOUT = 5000;
+// 朗读阶段超时：onstart 后长时间未触发 onend，兜底防止一直占用播报通道
+export const TTS_PLAYBACK_TIMEOUT = 15000;
+// 发音人选择列表中“自动匹配”的占位值
+export const AUTO_VOICE_VALUE = 'auto';
 
 // 模拟字幕数据
 export const MOCK_SUBTITLES = [

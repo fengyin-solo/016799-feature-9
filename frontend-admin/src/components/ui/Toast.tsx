@@ -25,6 +25,11 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast }) => {
   const removeToast = useAppStore(state => state.removeToast);
   const Icon = iconMap[toast.type];
 
+  const handleAction = () => {
+    toast.action?.onClick();
+    removeToast(toast.id);
+  };
+
   return (
     <div
       className={`
@@ -34,9 +39,17 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast }) => {
     >
       <Icon className="w-5 h-5 flex-shrink-0" />
       <span className="text-sm font-medium text-dark-100">{toast.message}</span>
+      {toast.action && (
+        <button
+          onClick={handleAction}
+          className="ml-1 px-2 py-0.5 text-xs font-semibold rounded border border-current hover:bg-white/10 transition-colors flex-shrink-0"
+        >
+          {toast.action.label}
+        </button>
+      )}
       <button
         onClick={() => removeToast(toast.id)}
-        className="ml-auto p-1 hover:bg-white/10 rounded transition-colors"
+        className={`${toast.action ? '' : 'ml-auto'} p-1 hover:bg-white/10 rounded transition-colors flex-shrink-0`}
       >
         <X className="w-4 h-4 text-dark-400" />
       </button>

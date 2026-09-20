@@ -1,36 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-
-// TTS 播报函数
-const speakText = (text: string, lang: string) => {
-  if (typeof window === 'undefined' || !window.speechSynthesis) {
-    return;
-  }
-  
-  const settings = useAppStore.getState().audioSettings;
-  if (!settings.ttsEnabled) {
-    return;
-  }
-  
-  // 取消之前的播报
-  window.speechSynthesis.cancel();
-  
-  const utterance = new SpeechSynthesisUtterance(text);
-  
-  // 获取合适的语音
-  const voices = window.speechSynthesis.getVoices();
-  const voice = voices.find(v => v.lang.startsWith(lang.split('-')[0])) || voices[0];
-  if (voice) {
-    utterance.voice = voice;
-    utterance.lang = voice.lang;
-  }
-  
-  utterance.volume = settings.volume / 100;
-  utterance.rate = settings.speed;
-  
-  console.log('[TTS] 即时播报:', text);
-  window.speechSynthesis.speak(utterance);
-};
+import { ttsManager } from '@/services/ttsManager';
 
 interface SpeechRecognitionEvent extends Event {
   results: SpeechRecognitionResultList;
@@ -312,10 +282,11 @@ export const useSpeechRecognition = () => {
           console.log('[语音识别] ✅ 最终:', final);
           store.setCurrentSubtitle('');
           const translated = translateText(final, currentSourceLang, store.targetLang);
-          store.addSubtitle(final, translated);
-          
-          // 立即播报翻译结果
-          speakText(translated, store.targetLang);
+          const recordId = store.addSubtitle(final, translated);
+
+          // 立即播报翻译结果；连续结果到来时新播报会打断上一条，
+          // 被打断的记录会在会话记录详情中标记出来，可直接重读
+          ttsManager.speak(translated, { lang: store.targetLang, recordId });
         }
       };
 

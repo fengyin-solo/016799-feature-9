@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Mic,
   MicOff,
@@ -9,11 +9,14 @@ import {
   Settings,
   AlertCircle,
   Play,
+  UserCog,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { Select, Slider, Toggle, Button } from '@/components/ui';
-import { LANGUAGES } from '@/utils/constants';
+import { LANGUAGES, AUTO_VOICE_VALUE } from '@/utils/constants';
 import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
+import { resolveVoicePreference } from '@/services/ttsManager';
+import { getLanguageDisplayName } from '@/utils/helpers';
 
 export const ControlPanel: React.FC = () => {
   const sourceLang = useAppStore(state => state.sourceLang);
@@ -24,13 +27,46 @@ export const ControlPanel: React.FC = () => {
   const setTargetLang = useAppStore(state => state.setTargetLang);
   const toggleMic = useAppStore(state => state.toggleMic);
   const setAudioSettings = useAppStore(state => state.setAudioSettings);
+  const setVoicePreference = useAppStore(state => state.setVoicePreference);
 
-  const { testSpeak, isSupported: ttsSupported } = useSpeechSynthesis();
+  const { testSpeak, voices, getVoicesForLang, isSupported: ttsSupported } = useSpeechSynthesis();
 
   const languageOptions = LANGUAGES.map(lang => ({
     value: lang.code,
     label: lang.nativeName,
   }));
+
+  // 当前目标语言记住的发音人与语速偏好（选定一次后自动沿用）
+  const targetPreference = resolveVoicePreference(targetLang, audioSettings.voicePreferences);
+
+  // 当前目标语言可用的发音人（完整代码优先，前缀匹配其次）
+  const targetVoices = useMemo(
+    () => getVoicesForLang(targetLang),
+    // voices 变化（异步加载完成）或切换语言时重新计算
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [voices, targetLang],
+  );
+
+  const voiceOptions = useMemo(() => {
+    const options = [
+      { value: AUTO_VOICE_VALUE, label: `自动匹配（${getLanguageDisplayName(targetLang, LANGUAGES)}）` },
+    ];
+    targetVoices.forEach(voice => {
+      options.push({
+        value: voice.name,
+        label: `${voice.name} (${voice.lang})${voice.default ? ' · 默认' : ''}`,
+      });
+    });
+    return options;
+  }, [targetVoices, targetLang]);
+
+  // 已保存的发音人只要系统里还存在就继续沿用；若已被移除则下拉回到“自动匹配”
+  const selectedVoiceValue =
+    targetPreference.voiceName === AUTO_VOICE_VALUE ||
+    voices.some(v => v.name === targetPreference.voiceName)
+      ? targetPreference.voiceName
+      : AUTO_VOICE_VALUE;
+
 
   // 检查浏览器是否支持语音识别
   const isSpeechSupported = typeof window !== 'undefined' && 
@@ -146,7 +182,7 @@ export const ControlPanel: React.FC = () => {
         />
 
         <Slider
-          label="音频设置"
+          label="音量"
           value={audioSettings.volume}
           min={0}
           max={100}
@@ -155,14 +191,33 @@ export const ControlPanel: React.FC = () => {
           icon={<Volume2 className="w-4 h-4" />}
         />
 
+        {/* 发音人：按目标语言分别记忆，选定后该语言的后续播报自动沿用 */}
+        <div className="space-y-2">
+          <Select
+            label={`发音人（${getLanguageDisplayName(targetLang, LANGUAGES)}）`}
+            value={selectedVoiceValue}
+            options={voiceOptions}
+            onChange={value => setVoicePreference(targetLang, { voiceName: value })}
+            icon={<UserCog className="w-4 h-4" />}
+            placeholder="自动匹配"
+          />
+          {targetVoices.length === 0 && ttsSupported && (
+            <p className="text-xs text-accent-yellow flex items-start gap-1">
+              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              当前目标语言暂无专用发音人，播报时将自动退回通用语音
+            </p>
+          )}
+        </div>
+
+        {/* 语速：每个目标语言单独记住偏好 */}
         <Slider
-          label="播报语速"
-          value={audioSettings.speed}
+          label={`播报语速（${getLanguageDisplayName(targetLang, LANGUAGES)}）`}
+          value={targetPreference.speed}
           min={0.5}
           max={2.0}
           step={0.1}
           unit="x"
-          onChange={value => setAudioSettings({ speed: value })}
+          onChange={value => setVoicePreference(targetLang, { speed: value })}
           icon={<Gauge className="w-4 h-4" />}
         />
 
@@ -176,7 +231,7 @@ export const ControlPanel: React.FC = () => {
         >
           测试播报
         </Button>
-        
+
         {!ttsSupported && (
           <p className="text-xs text-accent-yellow">
             您的浏览器不支持语音播报功能
